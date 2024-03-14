@@ -5,6 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import gensim.downloader as api
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from collections import Counter
 from transformers import AutoTokenizer, AutoModel
 import torch
 
@@ -30,64 +31,42 @@ def generate_document_embedding_bert(text):
     outputs = model(**inputs)
     return torch.mean(outputs.last_hidden_state, dim=1).squeeze().detach().numpy()
 
+def get_bert_embeddings(text):
+    inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True)
+    outputs = model(**inputs)
+    return torch.mean(outputs.last_hidden_state, dim=1).squeeze().detach()
+
 def generate_document_embedding(text):
     tokens = word_tokenize(text)
     tokens = [token for token in tokens if token in word_embeddings_model and token not in stop_words]
     return sum(word_embeddings_model[token] for token in tokens) / len(tokens) if tokens else None
 
+def get_most_common_words(text, n=10):
+    tokens = word_tokenize(text)
+    tokens = [token for token in tokens if token not in stop_words]
+    freq_dist = nltk.FreqDist(tokens)
+    return [word for word, freq in freq_dist.most_common(n)]
+
+def calculate_similarity_bert(text1, text2):
+    text1_common_words = get_most_common_words(text1)
+    text2_common_words = get_most_common_words(text2)
+    text1_common_str = ' '.join(text1_common_words)
+    text2_common_str = ' '.join(text2_common_words)
+    text1_embedding = get_bert_embeddings(text1_common_str)
+    text2_embedding = get_bert_embeddings(text2_common_str)
+    text1_embedding_tensor = torch.tensor(text1_embedding).clone().detach()
+    text2_embedding_tensor = torch.tensor(text2_embedding).clone().detach()
+    return cosine_similarity(text1_embedding_tensor.unsqueeze(0), text2_embedding_tensor.unsqueeze(0))[0][0]
 
 
-resume = """
-John Doe
-Fargo, ND | johndoe@gmail.com | 555-555-5555 | LinkedIn: johndoe
-
-Objective: Skilled software engineer seeking a challenging position where I can utilize my experience in Python, Java, and machine learning to develop innovative solutions and contribute to the team.
-
-Skills: Python, Java, Machine Learning, Problem-Solving, Team Collaboration
-
-Work Experience:
-Software Engineer | Tech Company | Fargo, ND | June 2016 - Present
-- Developed and maintained machine learning models that improved system efficiency by 30%.
-- Collaborated with a team of engineers to deliver projects on time and under budget.
-
-Education:
-Bachelor's degree in Computer Science | University Name | May 2016
-
-Certifications:
-Certified Python Developer | PCEP | 2020
-Java SE 8 Programmer Certification | Oracle | 2021
-
-"""
+resume = """ """
 
 jd = """
-The ideal candidate for this position is a self-driven individual that likes to make a big impact in
-small teams - and has a passion for both software development and aviation. The opportunity
-will primarily involve a mix of frontend development in React and API development in .NET for
-Appareo's FOQA solution, EnVision. This individual will coordinate with a cross-disciplinary
-software team to help make solutions that work well from embedded software to the cloud.
-Essential Duties and Responsibilities
-The essential functions include, but are not limited to the following:
-Implement new software features in an iterative process
-Help maintain and continuously update EnVision website infrastructure and ecosystem
-Assist with design and estimation of new features, identifying areas of risk
-Work requires occasional travel to meetings, site visits, and conferences
-Minimum Qualifications (Knowledge, Skills, and Abilities)
-B.S. in Computer Science and/or training or equivalent combination of education and experience
-General professional programming, 5+ years experience
-Strong proficiency in React, 2+ years experience
-Proficiency in C# and .NET, 2+ years experience
-Experience with relational database design
-Experience with Docker
-Bonus: Aviation domain experience (e.g. private pilot etc.)
-Bonus: Ansible experience
-Bonus: AWS services experience
-Bonus: enjoys algorithms
-Why Work at Appareo Systems?
-Appareo Systems is focused on dramatic growth and innovation. With that in mind, Appareo Systems is committed to providing opportunities for individual growth and career satisfaction and assisting employees to realize their potential by providing appropriate training and development opportunities.
-Culture is Everything
-Our culture is deeply rooted in our company purpose and core values. We love what we do and we’re passionate about it. Everyone at Appareo is helping to build a company that is meaningful and impactful. We are defining the direction of a rapidly growing business. We work hard, but we also have a little fun along the way.
+2 to 12 Years,BCA,$56K-$116K,Ashgabat,Turkmenistan,38.9697,59.5563,Intern,100340,2022-12-19,Female,Francisco Larsen,461-509-4216,Web Developer,Frontend Web Developer,Idealist,"Frontend Web Developers design and implement user interfaces for websites, ensuring they are visually appealing and user-friendly. They collaborate with designers and backend developers to create seamless web experiences for users.","{'Health Insurance, Retirement Plans, Paid Time Off (PTO), Flexible Work Arrangements, Employee Assistance Programs (EAP)'}","HTML, CSS, JavaScript Frontend frameworks (e.g., React, Angular) User experience (UX)","Design and code user interfaces for websites, ensuring a seamless and visually appealing user experience. Collaborate with UX designers to optimize user journeys. Ensure cross-browser compatibility and responsive design.",PNC Financial Services Group,"{""Sector"":""Financial Services"",""Industry"":""Commercial Banks"",""City"":""Pittsburgh"",""State"":""Pennsylvania"",""Zip"":""15222"",""Website"":""www.pnc.com"",""Ticker"":""PNC"",""CEO"":""William S. Demchak""}"
 """ 
-##get keyt words simularity
+
+
+##get key words similarity use a hashmap <string, int> and ++ to the key when u find a word in the map
 resume = preprocess_text(resume)
 jd = preprocess_text(jd)
 
@@ -95,7 +74,8 @@ resume_embedding_bert = generate_document_embedding_bert(resume)
 jd_embedding_bert = generate_document_embedding_bert(jd)
 resume_embedding = generate_document_embedding(resume)
 jd_embedding = generate_document_embedding(jd)
-
+similarity_score_bert = 0
+similarity_score_word_embeddings = 0
 if resume_embedding_bert is not None and jd_embedding_bert is not None:
     similarity_score_bert = cosine_similarity([resume_embedding_bert], [jd_embedding_bert])[0][0]
     print(f"Similarity Score (BERT): {similarity_score_bert}")
@@ -107,3 +87,29 @@ if resume_embedding is not None and jd_embedding is not None:
     print(f"Similarity Score (Word Embeddings): {similarity_score_word_embeddings}")
 else:
     print("One or both Word Embeddings document embeddings could not be generated.")
+
+similarity = calculate_similarity_bert(resume, jd)
+print(f"Key Word Similarity: {similarity}")
+
+keyword_weight = 0.6
+tfidf_weight = 0.3
+embedding_weight = 0.1 
+
+combined_score = (keyword_weight * similarity) + (tfidf_weight * similarity_score_bert) + (embedding_weight * similarity_score_word_embeddings)
+
+print("Combined Score:", combined_score)
+
+## This is my starter code.
+## Calculates cosign sim
+## Improvements or things to try
+## Try Stemming instead of lemma partitioning
+## Keep verbs and nouns but remove unrelated parts of speech
+## Handle named entities. Skills, educations, companies ect. Fuzzy matching?
+## TF-ID instead of simple word count. *****important****
+## Word2Vec or GloVe? maybe even Gensim
+## Experiment with sentence-level embeddings
+##
+##
+## jaccard similarity?
+##
+##
